@@ -10,105 +10,11 @@ import { IHooks } from "@balancer-labs/v3-interfaces/contracts/vault/IHooks.sol"
 import { IVault } from "@balancer-labs/v3-interfaces/contracts/vault/IVault.sol";
 import { IPoolInfo } from "@balancer-labs/v3-interfaces/contracts/pool-utils/IPoolInfo.sol";
 
-import {
-    LiquidityManagement,
-    AfterSwapParams,
-    SwapKind,
-    TokenConfig,
-    HookFlags
-} from "@balancer-labs/v3-interfaces/contracts/vault/VaultTypes.sol";
-import { IBasePoolFactory } from "@balancer-labs/v3-interfaces/contracts/vault/IBasePoolFactory.sol";
-import { IRouterCommon } from "@balancer-labs/v3-interfaces/contracts/vault/IRouterCommon.sol";
-import { FixedPoint } from "@balancer-labs/v3-solidity-utils/contracts/math/FixedPoint.sol";
-import { BaseHooks } from "@balancer-labs/v3-vault/contracts/BaseHooks.sol";
-import { VaultGuard } from "@balancer-labs/v3-vault/contracts/VaultGuard.sol";
-
 import { ISwapDiscountHook } from "./Interfaces/ISwapDiscountHook.sol";
 import { IDiscountCampaign } from "./Interfaces/IDiscountCampaign.sol";
 import { DiscountCampaign } from "./DiscountCampaign.sol";
 
-contract SwapDiscountHook is ISwapDiscountHook, BaseHooks, ERC721, Ownable, VaultGuard, ReentrancyGuard {
-    using FixedPoint for uint256;
-
-    // Immutable addresses for factory and router
-    address private immutable allowedFactoryAddress;
-    address private immutable trustedRouterAddress;
-
-    // Token-related state variables
-    address public discountTokenAddress;
-    uint256 private _shareTokenId = 1;
-
-    // Mapping to store user swap discount data
-    mapping(uint256 => UserSwapData) public override userDiscountMapping;
-    mapping(address => CampaignData) public override discountCampaigns;
-
-    constructor(
-        IVault vaultInstance,
-        address factoryAddress,
-        address routerAddress,
-        string memory name,
-        string memory symbol
-    ) VaultGuard(vaultInstance) ERC721(name, symbol) Ownable(msg.sender) {
-        allowedFactoryAddress = factoryAddress;
-        trustedRouterAddress = routerAddress;
-    }
-
-    /// @inheritdoc IHooks
-    function onRegister(
-        address factory,
-        address pool,
-        TokenConfig[] memory,
-        LiquidityManagement calldata
-    ) public view override returns (bool) {
-        return factory == allowedFactoryAddress && IBasePoolFactory(factory).isPoolFromFactory(pool);
-    }
-
-    /// @inheritdoc IHooks
-    function getHookFlags() public pure override returns (HookFlags memory hookFlags) {
-        hookFlags.shouldCallAfterSwap = true;
-        return hookFlags;
-    }
-
-    /// @inheritdoc IHooks
-    function onAfterSwap(
-        AfterSwapParams calldata params
-    ) public override onlyVault returns (bool success, uint256 discountedAmount) {
-        if (
-            params.kind == SwapKind.EXACT_IN &&
-            discountCampaigns[params.pool].campaignAddress != address(0) &&
-            address(params.tokenOut) == discountCampaigns[params.pool].rewardToken
-        ) {
-            mint(params);
-        }
-        return (true, params.amountCalculatedRaw);
-    }
-
-    /**
-     * @notice Apply discount and mint a new token for the user.
-     * @dev This function mints a token for the user after applying the discount and storing relevant swap data.
-     *      The function uses memory for `UserSwapData` to minimize storage operations until the final write to storage.
-     * @param params The parameters of the swap after it has been executed.
-     *        - params.router: The address of the router handling the swap.
-     *        - params.amountCalculatedRaw: The amount swapped by the user.
-     *        - params.pool: The liquidity pool involved in the swap.
-     */
-    function mint(AfterSwapParams calldata params) internal nonReentrant {
-        uint256 newTokenId = _shareTokenId++;
-        address user = IRouterCommon(params.router).getSender();
-
-        // Use memory for userSwapData until final write to storage
-        UserSwapData memory userSwapData;
-        userSwapData.userAddress = user;
-        userSwapData.swappedAmount = params.amountCalculatedRaw;
-        userSwapData.campaignAddress = discountCampaigns[params.pool].campaignAddress;
-        userSwapData.timeOfSwap = block.timestamp;
-
-        // Write once to storage
-        userDiscountMapping[newTokenId] = userSwapData;
-
-        _mint(user, newTokenId);
-    }
-
+contract DiscountFactory is ISwapDiscountHook, Ownable, ReentrancyGuard {
     /**
      * @notice Create a new discount campaign for a specific liquidity pool.
      * @dev The function creates a new `DiscountCampaign` contract and stores its details.
@@ -176,16 +82,7 @@ contract SwapDiscountHook is ISwapDiscountHook, BaseHooks, ERC721, Ownable, Vaul
         uint256 discountAmount,
         address owner,
         address rewardToken
-    ) external {
-        // CampaignData memory campaignData = discountCampaigns[pool];
-        // IERC20 rewardTokenInstance = IERC20(rewardToken);
-        // if (campaignData.campaignAddress == address(0)) {
-        //     revert PoolCampaignDoesNotExist();
-        // }
-        // if (block.timestamp > campaignData.expirationTime) {
-        //     revert CampaignNotExpired();
-        // }
-    }
+    ) external {}
 
     /**
      * @notice Mark the token as 'claimed' for the given token ID.

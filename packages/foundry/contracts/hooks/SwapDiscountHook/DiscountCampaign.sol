@@ -13,6 +13,8 @@ contract DiscountCampaign is IDiscountCampaign, Ownable, ReentrancyGuard {
     // Public state variables
     CampaignDetails public campaignDetails;
     uint256 public tokenRewardDistributed;
+    uint256 private _maxBuy;
+    uint256 private _maxDiscount;
 
     // Private state variables
     ISwapDiscountHook private _swapHook;
@@ -27,16 +29,8 @@ contract DiscountCampaign is IDiscountCampaign, Ownable, ReentrancyGuard {
     constructor(CampaignDetails memory _campaignDetails, address _owner, address _hook) Ownable(_owner) {
         campaignDetails = _campaignDetails;
         _swapHook = ISwapDiscountHook(_hook);
-    }
-
-    /**
-     * @notice Updates the campaign details.
-     * @dev Only the contract owner can update the campaign details. This will replace the existing campaign parameters.
-     * @param _newCampaignDetails A struct containing updated reward amount, expiration time, cooldown period, discount rate, and reward token.
-     */
-    function updateCampaignDetails(CampaignDetails calldata _newCampaignDetails) external onlyOwner {
-        campaignDetails = _newCampaignDetails;
-        emit CampaignDetailsUpdated(_newCampaignDetails);
+        _maxBuy = campaignDetails.rewardAmount;
+        _maxDiscount = campaignDetails.discountRate;
     }
 
     /**
@@ -61,6 +55,17 @@ contract DiscountCampaign is IDiscountCampaign, Ownable, ReentrancyGuard {
     }
 
     /**
+     * @notice Updates the campaign details.
+     * @dev Only the contract owner can update the campaign details. This will replace the existing campaign parameters.
+     * @param _newCampaignDetails A struct containing updated reward amount, expiration time, cooldown period, discount rate, and reward token.
+     */
+    function updateCampaignDetails(CampaignDetails calldata _newCampaignDetails) external {
+        if (msg.sender != address(_swapHook)) revert NOT_AUTHORIZED();
+        campaignDetails = _newCampaignDetails;
+        emit CampaignDetailsUpdated(_newCampaignDetails);
+    }
+
+    /**
      * @notice Claims rewards for a specific token ID.
      * @dev Transfers the reward to the user associated with the token and marks the token as claimed.
      *      Reverts if the reward amount is zero or if the total rewards have been distributed.
@@ -70,12 +75,13 @@ contract DiscountCampaign is IDiscountCampaign, Ownable, ReentrancyGuard {
         (address user, , , , ) = _swapHook.userDiscountMapping(tokenID);
         uint256 reward = _getClaimableRewards(tokenID);
 
-        if (reward == 0 && tokenRewardDistributed == campaignDetails.rewardAmount) {
+        if (reward == 0) {
             revert RewardAmountExpired();
         }
 
         IERC20(campaignDetails.rewardToken).transferFrom(address(this), user, reward);
         tokenRewardDistributed += reward;
+        _maxBuy -= reward;
         _updateDiscount();
         _swapHook.setHasClaimed(tokenID);
     }
@@ -102,7 +108,11 @@ contract DiscountCampaign is IDiscountCampaign, Ownable, ReentrancyGuard {
         (, , uint256 swappedAmount, , ) = _swapHook.userDiscountMapping(tokenID);
 
         // Calculate claimable reward based on the swapped amount and discount rate
-        claimableReward = (swappedAmount * campaignDetails.discountRate) / 100e18;
+        if (swappedAmount <= _maxBuy) {
+            claimableReward = (swappedAmount * campaignDetails.discountRate) / 100e18;
+        } else {
+            claimableReward = (_maxBuy * campaignDetails.discountRate) / 100e18;
+        }
     }
 
     /**
@@ -110,8 +120,10 @@ contract DiscountCampaign is IDiscountCampaign, Ownable, ReentrancyGuard {
      * @dev The discount rate decreases proportionally as more rewards are distributed.
      */
     function _updateDiscount() private {
-        campaignDetails.discountRate =
-            campaignDetails.discountRate *
-            (1 - tokenRewardDistributed / campaignDetails.rewardAmount);
+        campaignDetails.discountRate = _maxDiscount * (1 - tokenRewardDistributed / campaignDetails.rewardAmount);
+    }
+
+    function recoverERC20(address tokenAddress, uint256 tokenAmount) external onlyOwner {
+        IERC20(tokenAddress).transferFrom(address(this), owner(), tokenAmount);
     }
 }

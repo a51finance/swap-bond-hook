@@ -6,6 +6,7 @@ interface IDiscountCampaign {
     error DiscountExpired();
     error RewardAlreadyClaimed();
     error RewardAmountExpired();
+    error NOT_AUTHORIZED();
 
     // Struct to group campaign-related parameters
     struct CampaignDetails {
@@ -15,6 +16,8 @@ interface IDiscountCampaign {
         uint256 discountRate;
         address rewardToken;
     }
+
+    function updateCampaignDetails(CampaignDetails calldata _newCampaignDetails) external;
 
     event CampaignDetailsUpdated(CampaignDetails _newCampaignDetails);
 }

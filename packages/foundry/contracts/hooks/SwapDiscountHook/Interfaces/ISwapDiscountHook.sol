@@ -2,9 +2,12 @@
 pragma solidity ^0.8.24;
 
 interface ISwapDiscountHook {
-    error poolCampaignAlreadyExist();
+    error PoolCampaignAlreadyExist();
+    error PoolCampaignDoesNotExist();
     error InvalidRewardToken();
     error NOT_AUTHORIZED();
+    error InsufficientRewardAmount();
+    error CampaignNotExpired();
 
     /// Event emitted when a discount is granted
     event SwapDiscountGranted(uint256 indexed id, address indexed user, uint256 expiration, uint256 amount);
@@ -23,6 +26,7 @@ interface ISwapDiscountHook {
         address owner;
         address rewardToken;
         uint256 timeOfCreation;
+        uint256 expirationTime;
     }
 
     function setHasClaimed(uint256 tokenID) external;
@@ -44,5 +48,14 @@ interface ISwapDiscountHook {
     /// Mapping from token ID to user swap data
     function discountCampaigns(
         address campaign
-    ) external view returns (address campaignAddress, address owner, address rewardToken, uint256 timeOfCreation);
+    )
+        external
+        view
+        returns (
+            address campaignAddress,
+            address owner,
+            address rewardToken,
+            uint256 timeOfCreation,
+            uint256 expirationTime
+        );
 }
